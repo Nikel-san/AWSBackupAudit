@@ -52,3 +52,8 @@ Do NOT pass a plain string as the body value - Jira Cloud API v3 will reject it 
 19. Avoid repeated repository checks; perform git status checks only at key checkpoints (before commit and after push).
 20. Execute work in one pass whenever feasible: pull, implement, validate, commit, push, then update Jira.
 21. Keep verification scoped to acceptance criteria; avoid extra exploratory commands unless they are needed to unblock completion.
+22. Hard start gate for ticket work: first call must retrieve the Jira issue details using Jira issue tools with minimal fields; do not call unrelated Atlassian tools before this succeeds.
+23. If a tool call is clearly wrong for the task, stop exploratory retries immediately and switch to the known-correct tool path.
+24. Do not use external repository/documentation lookups when the ticket already provides sufficient implementation requirements.
+25. Use this fixed minimum sequence for standard tickets: Jira read -> git pull -> read target files -> edit -> one validation pass -> commit -> push -> Jira comment -> transition -> label update.
+26. Keep progress updates concise and low-token by default; expand only when blocked or when a decision requires user input.
