@@ -42,3 +42,14 @@ Do NOT pass a plain string as the body value - Jira Cloud API v3 will reject it 
 12. Never create test environments, test scripts, test files (`test_*.py`), mock data files, or leave debug blocks in production code.
 13. Always use the Atlassian Rovo MCP server to read from or write to Jira. Do not use any other method. If the MCP call fails, print the result and likely reason, comment on the ticket, and stop - do not fall back to alternative methods silently.
 14. At the end, write a short summary with the result for each item.
+
+## Credit-Efficient Execution Rules
+
+15. Minimize tool usage while preserving correctness. Use the smallest number of calls needed to complete the task.
+16. For Jira reads, start with minimal fields (`summary`, `description`, `comment`, `issuelinks`, `status`, `labels`) and fetch additional fields only when strictly required.
+17. Do not duplicate Jira fetches or parse large response artifacts if required information is already available.
+18. Use a single dependency installation path per task (either environment package tool flow or terminal package install), not both.
+19. Run one focused diagnostics pass after edits; repeat only when fixing a concrete reported error.
+20. Avoid repeated repository checks; perform git status checks only at key checkpoints (before commit and after push).
+21. Execute work in one pass whenever feasible: pull, implement, validate, commit, push, then update Jira.
+22. Keep verification scoped to acceptance criteria; avoid extra exploratory commands unless they are needed to unblock completion.
