@@ -52,9 +52,9 @@ def parse_args() -> argparse.Namespace:
         "--output",
         help="Output CSV filename (default: backup_audit_<account>_<timestamp>.csv)",
     )
-    parser.add_argument("--aws-access-key-id", help="AWS access key ID")
-    parser.add_argument("--aws-secret-access-key", help="AWS secret access key")
-    parser.add_argument("--aws-session-token", help="AWS session token (optional)")
+    parser.add_argument("-k", "--aws-access-key-id", help="AWS access key ID")
+    parser.add_argument("-s", "--aws-secret-access-key", help="AWS secret access key")
+    parser.add_argument("-t", "--aws-session-token", help="AWS session token (optional)")
 
     args = parser.parse_args()
 
