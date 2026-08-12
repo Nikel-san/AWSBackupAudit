@@ -1,8 +1,8 @@
 # AWSBackupAudit
 
-AWSBackupAudit audits AWS Backup coverage for production resources in a target AWS account.
+AWSBackupAudit audits AWS Backup coverage for resources in a target AWS account.
 
-The script discovers EC2 instances and RDS databases tagged `env=prod`, checks whether each resource is covered by AWS Backup plans (explicit ARN assignments and tag-based selections), and writes a CSV report.
+The script discovers EC2 instances and RDS databases that match one or more configurable tag filters, checks whether each resource is covered by AWS Backup plans (explicit ARN assignments and tag-based selections), and writes a CSV report.
 
 ## Options
 
