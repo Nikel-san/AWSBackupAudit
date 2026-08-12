@@ -43,8 +43,20 @@ def print_colored(color: str, message: str) -> None:
     print(f"{color}{message}{Colors.RESET}")
 
 
+def parse_tag_filters(raw_tags: List[str]) -> List[Dict[str, str]]:
+    parsed: List[Dict[str, str]] = []
+    for raw_tag in raw_tags:
+        if "=" not in raw_tag:
+            raise ValueError(f"Invalid tag filter '{raw_tag}'. Expected key=value format.")
+        key, value = raw_tag.split("=", 1)
+        if not key:
+            raise ValueError(f"Invalid tag filter '{raw_tag}'. Tag key cannot be empty.")
+        parsed.append({key: value})
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Audit AWS Backup coverage for prod EC2 and RDS resources")
+    parser = argparse.ArgumentParser(description="Audit AWS Backup coverage for EC2 and RDS resources")
     parser.add_argument("-a", "--account-id", help="AWS account ID to audit")
     parser.add_argument("-r", "--region", default="us-east-1", help="AWS region (default: us-east-1)")
     parser.add_argument(
@@ -55,11 +67,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-k", "--aws-access-key-id", help="AWS access key ID")
     parser.add_argument("-s", "--aws-secret-access-key", help="AWS secret access key")
     parser.add_argument("-t", "--aws-session-token", help="AWS session token (optional)")
+    parser.add_argument(
+        "-T",
+        "--tag",
+        dest="tags",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Tag filter for resource discovery in key=value format. Repeat to match any provided tag.",
+    )
 
     args = parser.parse_args()
 
     if not args.account_id:
         print_colored(Colors.RED, "Error: --account-id/-a is required")
+        sys.exit(1)
+
+    if not args.tags:
+        print_colored(Colors.RED, "Error: at least one --tag/-T argument is required in key=value format")
+        sys.exit(1)
+
+    try:
+        args.tag_filters = parse_tag_filters(args.tags)
+    except ValueError as exc:
+        print_colored(Colors.RED, f"Error: {exc}")
         sys.exit(1)
 
     if args.aws_access_key_id and not args.aws_secret_access_key:
@@ -130,32 +161,50 @@ def ec2_arn(region: str, account_id: str, instance_id: str) -> str:
     return f"arn:aws:ec2:{region}:{account_id}:instance/{instance_id}"
 
 
-def list_prod_ec2_instances(ec2_client, account_id: str, region: str) -> List[ResourceRecord]:
-    resources: List[ResourceRecord] = []
-    paginator = ec2_client.get_paginator("describe_instances")
-    pages = paginator.paginate(Filters=[{"Name": "tag:env", "Values": ["prod"]}])
+def resource_matches_tag_filters(tags: Dict[str, str], tag_filters: List[Dict[str, str]]) -> bool:
+    for tag_filter in tag_filters:
+        if all(tags.get(key) == value for key, value in tag_filter.items()):
+            return True
+    return False
 
-    for page in pages:
-        for reservation in page.get("Reservations", []):
-            for instance in reservation.get("Instances", []):
-                instance_id = instance.get("InstanceId", "")
-                tags_list = instance.get("Tags", [])
-                tags = {t.get("Key", ""): t.get("Value", "") for t in tags_list if t.get("Key")}
-                object_name = tags.get("Name") or instance_id
-                resources.append(
-                    ResourceRecord(
-                        account_id=account_id,
-                        object_type="EC2 Instance",
-                        object_name=object_name,
-                        arn=ec2_arn(region, account_id, instance_id),
-                        tags=tags,
-                    )
-                )
+
+def list_prod_ec2_instances(ec2_client, account_id: str, region: str, tag_filters: List[Dict[str, str]]) -> List[ResourceRecord]:
+    resources: List[ResourceRecord] = []
+    seen_instance_ids = set()
+
+    for tag_filter in tag_filters:
+        for key, value in tag_filter.items():
+            paginator = ec2_client.get_paginator("describe_instances")
+            pages = paginator.paginate(Filters=[{"Name": f"tag:{key}", "Values": [value]}])
+
+            for page in pages:
+                for reservation in page.get("Reservations", []):
+                    for instance in reservation.get("Instances", []):
+                        instance_id = instance.get("InstanceId", "")
+                        if not instance_id or instance_id in seen_instance_ids:
+                            continue
+
+                        tags_list = instance.get("Tags", [])
+                        tags = {t.get("Key", ""): t.get("Value", "") for t in tags_list if t.get("Key")}
+                        if not resource_matches_tag_filters(tags, tag_filters):
+                            continue
+
+                        object_name = tags.get("Name") or instance_id
+                        seen_instance_ids.add(instance_id)
+                        resources.append(
+                            ResourceRecord(
+                                account_id=account_id,
+                                object_type="EC2 Instance",
+                                object_name=object_name,
+                                arn=ec2_arn(region, account_id, instance_id),
+                                tags=tags,
+                            )
+                        )
 
     return resources
 
 
-def list_prod_rds_instances(rds_client, account_id: str) -> List[ResourceRecord]:
+def list_prod_rds_instances(rds_client, account_id: str, tag_filters: List[Dict[str, str]]) -> List[ResourceRecord]:
     resources: List[ResourceRecord] = []
     marker: Optional[str] = None
 
@@ -176,7 +225,7 @@ def list_prod_rds_instances(rds_client, account_id: str) -> List[ResourceRecord]
                 continue
 
             tags = {t.get("Key", ""): t.get("Value", "") for t in tag_response.get("TagList", []) if t.get("Key")}
-            if tags.get("env") != "prod":
+            if not resource_matches_tag_filters(tags, tag_filters):
                 continue
 
             resources.append(
@@ -360,9 +409,10 @@ def main() -> int:
     rds_client = session.client("rds", region_name=args.region)
     backup_client = session.client("backup", region_name=args.region)
 
-    print_colored(Colors.CYAN, f"Scanning EC2 and RDS resources tagged env=prod in {args.region}...")
-    ec2_resources = list_prod_ec2_instances(ec2_client, args.account_id, args.region)
-    rds_resources = list_prod_rds_instances(rds_client, args.account_id)
+    tag_summary = ", ".join(f"{key}={value}" for tag_filter in args.tag_filters for key, value in tag_filter.items())
+    print_colored(Colors.CYAN, f"Scanning EC2 and RDS resources matching any tag: {tag_summary} in {args.region}...")
+    ec2_resources = list_prod_ec2_instances(ec2_client, args.account_id, args.region, args.tag_filters)
+    rds_resources = list_prod_rds_instances(rds_client, args.account_id, args.tag_filters)
     all_resources = ec2_resources + rds_resources
     print_colored(Colors.CYAN, f"Discovered {len(ec2_resources)} EC2 and {len(rds_resources)} RDS resources")
 

@@ -14,6 +14,7 @@ The script discovers EC2 instances and RDS databases tagged `env=prod`, checks w
 | `-k`, `--aws-access-key-id` | No | AWS access key ID. Can be omitted when environment variables or default credential chain are used. |
 | `-s`, `--aws-secret-access-key` | No | AWS secret access key. Must be paired with access key ID when provided. |
 | `-t`, `--aws-session-token` | No | AWS session token (for temporary credentials). |
+| `-T`, `--tag` | Yes | Resource tag filter in `key=value` format. Repeat the option to include multiple tag matches using OR logic. |
 
 Credential input behavior:
 - If `-k/--aws-access-key-id` and `-s/--aws-secret-access-key` are passed, the script uses those credentials.
@@ -33,10 +34,20 @@ If the authenticated caller account differs from `--account-id`, the script prin
 
 ## Usage
 
-Basic usage with account ID only (uses default credential chain):
+Basic usage with account ID and a single tag filter (uses default credential chain):
 
 ```bash
-python AwsBackupAudit.py --account-id 123456789012
+python AwsBackupAudit.py --account-id 123456789012 --tag env=prod
+```
+
+Use multiple tag filters to match any provided tag:
+
+```bash
+python AwsBackupAudit.py \
+	--account-id 123456789012 \
+	--tag env=prod \
+	--tag env=staging \
+	--tag env=uat
 ```
 
 Specify region and output file:
@@ -45,6 +56,7 @@ Specify region and output file:
 python AwsBackupAudit.py \
 	--account-id 123456789012 \
 	--region us-west-2 \
+	--tag env=prod \
 	--output backup_audit_123456789012.csv
 ```
 
@@ -54,6 +66,7 @@ Pass credentials via short flags:
 python AwsBackupAudit.py \
 	-a 123456789012 \
 	-r us-east-1 \
+	-T env=prod \
 	-k "$AWS_ACCESS_KEY_ID" \
 	-s "$AWS_SECRET_ACCESS_KEY" \
 	-t "$AWS_SESSION_TOKEN"
@@ -66,7 +79,7 @@ export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_SESSION_TOKEN=your_session_token
 
-python AwsBackupAudit.py -a 123456789012
+python AwsBackupAudit.py -a 123456789012 -T env=prod
 ```
 
 ## CSV Output
